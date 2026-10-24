@@ -17,9 +17,9 @@ canvas{width:100%;max-width:480px;max-height:100%;aspect-ratio:480/860;touch-act
 <canvas id="c"></canvas>
 <script>
 const cv=document.getElementById('c'),g=cv.getContext('2d');
-const W=480,H=860,SAVE_KEY='td_save_v2',BEST_KEY='td_best_v2',WAVE_SEC=20;
+const W=480,H=860,SAVE_KEY='td_save_v3',BEST_KEY='td_best_v2',WAVE_SEC=20,HUD_H=172;
 cv.width=W;cv.height=H;
-const P=[[110,-30],[110,120],[340,120],[340,260],[110,260],[110,400],[340,400],[340,570],[372,590]];
+const P=[[110,150],[110,230],[340,230],[340,340],[110,340],[110,450],[340,450],[340,565],[375,590]];
 const L=[0];
 for(let i=1;i<P.length;i++)L.push(L[i-1]+Math.hypot(P[i][0]-P[i-1][0],P[i][1]-P[i-1][1]));
 const TOTAL=L[L.length-1];
@@ -32,7 +32,7 @@ function pos(d){
   }
   return P[P.length-1];
 }
-const SPOTS=[[225,50],[225,190],[225,330],[225,460],[40,190],[40,330],[40,460],[430,190],[430,330],[430,460]];
+const SPOTS=[[40,285],[225,285],[430,285],[40,395],[225,395],[430,395],[40,505],[110,515],[225,515]];
 const HAND_N=8;
 const TRASH={x:14,y:566,w:52,h:60};
 const BUY={x:10,y:650,w:130,h:200};
@@ -43,15 +43,19 @@ function readJSON(k){
 function readBest(){
   try{return parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0;}catch(e){return 0;}
 }
+function count(w){return 4+Math.floor(w*1.5);}
 let S;
 function reset(useSave){
-  S={money:60,wave:1,waveT:WAVE_SEC,spawnQ:6,spawnT:0,enemies:[],bullets:[],texts:[],
+  S={money:20,wave:1,waveT:WAVE_SEC,spawnQ:count(1),gap:14/count(1),spawnT:0,bossT:6,bossOn:true,
+     enemies:[],bullets:[],texts:[],
      tiles:SPOTS.map(p=>({x:p[0],y:p[1],lv:0,ang:Math.PI/2,cd:0})),
      hand:Array(HAND_N).fill(0),handT:Array(HAND_N).fill(0),
      buys:0,lives:20,over:false,flash:0,hit:0,drag:null,px:0,py:0,time:0,best:readBest()};
+  S.hand[0]=1;
   const d=useSave?readJSON(SAVE_KEY):null;
   if(d&&Array.isArray(d.hand)&&Array.isArray(d.tiles)){
-    S.money=d.money;S.wave=d.wave;S.waveT=d.waveT;S.spawnQ=d.spawnQ;S.lives=d.lives;
+    S.money=d.money;S.wave=d.wave;S.waveT=d.waveT;S.spawnQ=d.spawnQ;S.lives=d.lives;S.buys=d.buys||0;
+    S.gap=14/count(S.wave);S.bossOn=false;
     for(let i=0;i<HAND_N;i++)S.hand[i]=d.hand[i]||0;
     S.tiles.forEach((t,i)=>{t.lv=d.tiles[i]||0;});
   }
@@ -60,15 +64,15 @@ reset(true);
 function save(){
   if(S.drag||S.over)return;
   try{
-    localStorage.setItem(SAVE_KEY,JSON.stringify({money:S.money,wave:S.wave,waveT:S.waveT,spawnQ:S.spawnQ,lives:S.lives,hand:S.hand,tiles:S.tiles.map(t=>t.lv)}));
+    localStorage.setItem(SAVE_KEY,JSON.stringify({money:S.money,wave:S.wave,waveT:S.waveT,spawnQ:S.spawnQ,lives:S.lives,buys:S.buys,hand:S.hand,tiles:S.tiles.map(t=>t.lv)}));
   }catch(e){}
 }
 function clearSave(){try{localStorage.removeItem(SAVE_KEY);}catch(e){}}
 setInterval(save,2000);
 window.addEventListener('pagehide',save);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
-function cost(){return Math.max(6,Math.floor(10*Math.pow(1.13,S.wave-1)));}
-function baseLv(){return 1+Math.floor((S.wave-1)/6);}
+function cost(){return Math.floor(60*Math.pow(1.15,S.wave-1)*Math.pow(1.04,S.buys));}
+function baseLv(){return 1+Math.floor((S.wave-1)/8);}
 function tier(){return Math.min(3,Math.floor((S.wave-1)/10));}
 function maxLv(){
   let m=0;
@@ -78,7 +82,7 @@ function maxLv(){
 }
 function roll(){
   const b=baseLv(),m=maxLv(),r=Math.random();
-  const pg=Math.min(0.4,m*0.03);
+  const pg=Math.min(0.3,m*0.02);
   if(r<0.02&&m>1)return m;
   if(r<0.02+pg&&m>3)return Math.max(b,m-3+Math.floor(Math.random()*3));
   if(Math.random()<0.2)return b+1;
@@ -149,7 +153,7 @@ function endDrag(e){
   const d=S.drag;
   S.drag=null;
   if(inRect(x,y,TRASH)){
-    S.money+=Math.floor(4*Math.pow(2,d.lv-1));
+    S.money+=Math.floor(10*Math.pow(2,d.lv-1));
     return;
   }
   const l=hitLoc(x,y);
@@ -163,10 +167,17 @@ function endDrag(e){
 }
 cv.addEventListener('pointerup',endDrag);
 cv.addEventListener('pointercancel',endDrag);
-function spawn(){
-  const w=S.wave;
-  const hp=12*Math.pow(1.15,w-1);
-  S.enemies.push({d:0,hp,max:hp,sp:Math.min(90,45+w*0.3),r:Math.ceil(3*Math.pow(1.1,w-1))+1,x:P[0][0],y:P[0][1]});
+function spawn(boss){
+  const w=S.wave,big=w%5===0;
+  const hp0=18*Math.pow(1.2,w-1);
+  const rw=Math.ceil(4*Math.pow(1.13,w-1));
+  const sp=Math.min(85,40+w*0.4);
+  if(boss){
+    S.enemies.push({d:0,hp:hp0*(8+w*0.6)*(big?3:1),max:hp0*(8+w*0.6)*(big?3:1),sp:sp*0.7,r:rw*(big?45:15),boss:true,big,x:P[0][0],y:P[0][1]});
+    say(big?'大ボス出現!':'ボス出現!',W/2,230,'#ff6a5a');
+  }else{
+    S.enemies.push({d:0,hp:hp0,max:hp0,sp,r:rw,x:P[0][0],y:P[0][1]});
+  }
 }
 function update(dt){
   S.time+=dt;
@@ -174,23 +185,30 @@ function update(dt){
   if(S.hit>0)S.hit-=dt;
   S.waveT-=dt;
   if(S.waveT<=0){
-    S.wave++;S.waveT=WAVE_SEC;S.spawnQ+=6+S.wave*2;
-    S.money+=Math.floor(cost()*1.5);
-    say('WAVE '+S.wave,W/2,200,'#ffd95a');
+    S.wave++;S.waveT=WAVE_SEC;
+    const n=count(S.wave);
+    S.spawnQ+=n;S.gap=14/n;
+    S.bossT=6;S.bossOn=true;
+    S.money+=Math.floor(cost()*0.25);
+    say('WAVE '+S.wave,W/2,260,'#ffd95a');
+  }
+  if(S.bossOn){
+    S.bossT-=dt;
+    if(S.bossT<=0){S.bossOn=false;spawn(true);}
   }
   S.spawnT-=dt;
-  if(S.spawnQ>0&&S.spawnT<=0){spawn();S.spawnQ--;S.spawnT=Math.max(0.25,0.7-S.wave*0.004);}
+  if(S.spawnQ>0&&S.spawnT<=0){spawn(false);S.spawnQ--;S.spawnT=S.gap;}
   for(const e of S.enemies){
     e.d+=e.sp*dt;
     const p=pos(e.d);e.x=p[0];e.y=p[1];
-    if(e.d>=TOTAL){e.hp=-1;e.leak=true;S.lives--;S.hit=0.4;}
+    if(e.d>=TOTAL){e.hp=-1;e.leak=true;S.lives-=e.boss?3:1;S.hit=0.4;}
   }
   for(const t of S.tiles){
     if(t.lv<1)continue;
     t.cd-=dt;
     let best=null;
     for(const e of S.enemies){
-      if(e.hp<=0)continue;
+      if(e.hp<=0||e.y<HUD_H)continue;
       if(Math.hypot(e.x-t.x,e.y-t.y)<=150&&(!best||e.d>best.d))best=e;
     }
     if(best){
@@ -209,7 +227,10 @@ function update(dt){
     if(dist<=step+6){
       e.hp-=b.dmg;
       b.dead=true;
-      if(e.hp<=0&&!e.leak)S.money+=e.r;
+      if(e.hp<=0&&!e.leak){
+        S.money+=e.r;
+        if(e.boss)say('+'+fmt(e.r),e.x,e.y,'#ffe14a');
+      }
     }else{b.x+=dx/dist*step;b.y+=dy/dist*step;}
   }
   S.bullets=S.bullets.filter(b=>!b.dead);
@@ -217,6 +238,7 @@ function update(dt){
   for(const t of S.texts)t.t+=dt;
   S.texts=S.texts.filter(t=>t.t<1.2);
   if(S.lives<=0){
+    S.lives=0;
     S.over=true;
     if(S.wave>S.best){
       S.best=S.wave;
@@ -256,14 +278,14 @@ function tower(x,y,s,lv,ang){
   g.fillText(lv,x,y+s*0.04);
 }
 function house(){
-  const hx=412,hy=596;
+  const hx=415,hy=598;
   if(S.hit>0){
     g.fillStyle='rgba(255,40,40,'+(S.hit*1.4)+')';
     g.beginPath();g.arc(hx,hy-10,70,0,7);g.fill();
   }
   g.save();
   g.translate(hx,hy);
-  g.scale(1.5,1.5);
+  g.scale(1.4,1.4);
   g.fillStyle='rgba(0,0,0,0.25)';
   g.beginPath();g.ellipse(0,22,36,8,0,0,7);g.fill();
   g.fillStyle='#f4ead2';g.fillRect(-28,-18,56,40);
@@ -273,8 +295,8 @@ function house(){
   g.fillStyle='#8fd0ff';g.fillRect(12,-8,10,10);
   g.restore();
   g.fillStyle='rgba(30,30,30,0.9)';
-  rr(hx-48,hy-112,96,28,8);g.fill();
-  txt('HOME ♥'+S.lives,hx,hy-98,16,'#ff8a8a');
+  rr(hx-48,hy-100,96,28,8);g.fill();
+  txt('HOME ♥'+S.lives,hx,hy-86,16,'#ff8a8a');
 }
 function drawBg(){
   g.fillStyle='#8fcf2a';g.fillRect(0,0,W,H);
@@ -285,7 +307,7 @@ function drawBg(){
   g.beginPath();P.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));g.stroke();
   g.strokeStyle='#c8914a';g.lineWidth=44;
   g.beginPath();P.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));g.stroke();
-  const trees=[[30,90],[60,420],[450,60],[455,520],[30,540],[160,60],[300,60],[270,520],[190,520],[455,400]];
+  const trees=[[28,215],[165,190],[300,190],[455,215],[460,450],[455,530],[30,595],[190,600],[275,545],[100,610]];
   for(const t of trees){
     g.fillStyle='#2f7a2c';
     g.beginPath();g.moveTo(t[0],t[1]-26);g.lineTo(t[0]+15,t[1]+12);g.lineTo(t[0]-15,t[1]+12);g.fill();
@@ -293,16 +315,55 @@ function drawBg(){
   }
 }
 function drawEnemy(e){
+  const s=e.boss?1.9:1;
+  g.save();
+  g.translate(e.x,e.y);
+  g.scale(s,s);
   g.fillStyle='rgba(0,0,0,0.25)';
-  g.beginPath();g.ellipse(e.x,e.y+14,12,5,0,0,7);g.fill();
-  g.fillStyle='#7d8fd6';
-  g.beginPath();g.arc(e.x,e.y,13,0,7);g.fill();
-  g.fillStyle='#9fd18a';
-  g.beginPath();g.arc(e.x,e.y-6,8,0,7);g.fill();
+  g.beginPath();g.ellipse(0,14,12,5,0,0,7);g.fill();
+  g.fillStyle=e.boss?(e.big?'#7a1fa8':'#c0392b'):'#7d8fd6';
+  g.beginPath();g.arc(0,0,13,0,7);g.fill();
+  g.fillStyle=e.boss?'#d6e08a':'#9fd18a';
+  g.beginPath();g.arc(0,-6,8,0,7);g.fill();
   g.fillStyle='#222';
-  g.fillRect(e.x-5,e.y-8,3,3);g.fillRect(e.x+2,e.y-8,3,3);
-  g.fillStyle='#333';g.fillRect(e.x-14,e.y-26,28,5);
-  g.fillStyle='#5ee05e';g.fillRect(e.x-14,e.y-26,28*Math.max(0,e.hp/e.max),5);
+  g.fillRect(-5,-8,3,3);g.fillRect(2,-8,3,3);
+  if(e.boss){
+    g.fillStyle='#ffd23a';
+    g.beginPath();g.moveTo(-8,-13);g.lineTo(-8,-20);g.lineTo(-4,-16);g.lineTo(0,-22);g.lineTo(4,-16);g.lineTo(8,-20);g.lineTo(8,-13);g.fill();
+  }
+  g.restore();
+  const bw=e.boss?60:28,by=e.y-26*s;
+  g.fillStyle='#333';g.fillRect(e.x-bw/2,by,bw,e.boss?7:5);
+  g.fillStyle=e.boss?'#ff5a4a':'#5ee05e';
+  g.fillRect(e.x-bw/2,by,bw*Math.max(0,e.hp/e.max),e.boss?7:5);
+}
+function hud(){
+  g.fillStyle='#16240e';g.fillRect(0,0,W,HUD_H);
+  g.fillStyle='#2c4a1a';g.fillRect(0,HUD_H-4,W,4);
+  g.fillStyle='rgba(30,30,30,0.85)';
+  rr(60,14,330,44,8);g.fill();
+  g.fillStyle='#f5b81c';g.beginPath();g.arc(60,36,26,0,7);g.fill();
+  g.fillStyle='#ffd95a';g.beginPath();g.arc(60,36,19,0,7);g.fill();
+  txt('$',60,37,26,'#c97a00');
+  txt(fmt(S.money),225,37,28,'#fff');
+  const ws=[S.wave-1,S.wave,S.wave+1];
+  ws.forEach((w,i)=>{
+    const big=i===1;
+    const bw=big?96:62,bh=big?68:44;
+    const cx=[150,240,330][i],cy=big?102:106;
+    g.fillStyle=big?'rgba(0,0,0,0.6)':'rgba(255,255,255,0.1)';
+    rr(cx-bw/2,cy-bh/2,bw,bh,8);g.fill();
+    if(big){
+      txt('WAVE',cx,cy-20,14,'#ffd95a');
+      txt(String(w),cx,cy+8,36,'#fff');
+    }else if(w>=1)txt(String(w),cx,cy,22,'#bbb');
+  });
+  g.fillStyle='rgba(0,0,0,0.5)';g.fillRect(190,142,100,7);
+  g.fillStyle='#ffd95a';g.fillRect(190,142,100*(1-Math.max(0,S.waveT)/WAVE_SEC),7);
+  txt('次の波まで '+Math.ceil(Math.max(0,S.waveT))+'秒',240,159,14,'#fff');
+  txt('ベスト '+S.best,12,90,14,'#ffe9a0','left');
+  txt('♥ '+S.lives,12,116,22,'#ff8a8a','left');
+  txt(S.bossOn?'ボスまで '+Math.ceil(S.bossT)+'秒':'ボス出現済み',468,106,14,'#ff9a8a','right');
 }
 function draw(){
   drawBg();
@@ -317,28 +378,7 @@ function draw(){
     g.fillStyle='hsl('+((b.c*47+15)%360)+',90%,60%)';
     g.beginPath();g.arc(b.x,b.y,5,0,7);g.fill();
   }
-  g.fillStyle='rgba(30,30,30,0.85)';
-  rr(60,14,330,44,8);g.fill();
-  g.fillStyle='#f5b81c';g.beginPath();g.arc(60,36,26,0,7);g.fill();
-  g.fillStyle='#ffd95a';g.beginPath();g.arc(60,36,19,0,7);g.fill();
-  txt('$',60,37,26,'#c97a00');
-  txt(fmt(S.money),225,37,28,'#fff');
-  const ws=[S.wave-1,S.wave,S.wave+1];
-  ws.forEach((w,i)=>{
-    const big=i===1;
-    const bw=big?96:62,bh=big?68:44;
-    const cx=[150,240,330][i],cy=big?100:104;
-    g.fillStyle=big?'rgba(20,20,20,0.92)':'rgba(30,30,30,0.7)';
-    rr(cx-bw/2,cy-bh/2,bw,bh,8);g.fill();
-    if(big){
-      txt('WAVE',cx,cy-20,14,'#ffd95a');
-      txt(String(w),cx,cy+8,36,'#fff');
-    }else if(w>=1)txt(String(w),cx,cy,22,'#bbb');
-  });
-  g.fillStyle='rgba(0,0,0,0.5)';g.fillRect(190,142,100,7);
-  g.fillStyle='#ffd95a';g.fillRect(190,142,100*(1-Math.max(0,S.waveT)/WAVE_SEC),7);
-  txt('次の波まで '+Math.ceil(Math.max(0,S.waveT))+'秒',240,160,14,'#fff');
-  txt('ベスト WAVE '+S.best,16,132,13,'#ffe9a0','left');
+  hud();
   g.fillStyle='rgba(255,255,255,0.35)';
   rr(TRASH.x,TRASH.y,TRASH.w,TRASH.h,8);g.fill();
   g.fillStyle='#777';
@@ -356,8 +396,8 @@ function draw(){
   g.beginPath();g.moveTo(BUY.x+34,BUY.y+38);g.lineTo(BUY.x+96,BUY.y+90);
   g.moveTo(BUY.x+96,BUY.y+38);g.lineTo(BUY.x+34,BUY.y+90);g.stroke();
   txt('Lv'+baseLv()+'〜',BUY.x+65,BUY.y+116,20,'#fff');
-  g.fillStyle='#f5b81c';g.beginPath();g.arc(BUY.x+30,BUY.y+160,13,0,7);g.fill();
-  txt(fmt(cost()),BUY.x+48,BUY.y+160,24,'#fff','left');
+  g.fillStyle='#f5b81c';g.beginPath();g.arc(BUY.x+26,BUY.y+160,13,0,7);g.fill();
+  txt(fmt(cost()),BUY.x+44,BUY.y+160,24,'#fff','left');
   g.fillStyle='rgba(70,80,75,0.92)';
   rr(150,650,320,200,12);g.fill();
   const now=performance.now();
