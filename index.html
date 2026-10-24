@@ -33,8 +33,8 @@ canvas{width:100%;max-width:480px;max-height:100%;aspect-ratio:480/860;touch-act
 </div>
 <script>
 const cv=document.getElementById('c'),g=cv.getContext('2d');
-const W=480,H=860,SAVE_KEY='td_save_v3',BEST_KEY='td_best_v2',GIFT_KEY='td_gift_v1',CODE_KEY='td_codes_v1';
-const WAVE_SEC=20,HUD_H=206,GIFT_SEC=300,ADAPT=2;
+const W=480,H=860,SAVE_KEY='td_save_v4',BEST_KEY='td_best_v2',GIFT_KEY='td_gift_v1',CODE_KEY='td_codes_v1';
+const WAVE_SEC=20,HUD_H=206,GIFT_SEC=300,ADAPT=1.35;
 const CODES={
   'WELCOME':{money:300,towers:[1,1]},
   'BIGGIFT':{money:3000,towers:[3,3]},
@@ -84,16 +84,17 @@ function markUsed(c){
   a.push(c);
   try{localStorage.setItem(CODE_KEY,JSON.stringify(a));}catch(e){}
 }
-function count(w){return 4+Math.floor(w*1.5);}
+function count(w){return 4+Math.floor(w*1.35);}
 let S;
 let paused=false;
 function reset(useSave){
-  S={money:20,wave:1,waveT:WAVE_SEC,spawnQ:count(1),gap:14/count(1),spawnT:0,bossT:6,bossOn:true,
+  S={money:45,wave:1,waveT:WAVE_SEC,spawnQ:count(1),gap:14/count(1),spawnT:0,bossT:6,bossOn:true,
      enemies:[],bullets:[],texts:[],
-     tiles:SPOTS.map((p,i)=>({x:p[0],y:p[1],lv:0,ang:Math.PI/2,cd:0,open:i===1})),
+     tiles:SPOTS.map((p,i)=>({x:p[0],y:p[1],lv:0,ang:Math.PI/2,cd:0,open:i<=2})),
      hand:Array(HAND_N).fill(0),handT:Array(HAND_N).fill(0),
      buys:0,lives:20,over:false,flash:0,hit:0,drag:null,px:0,py:0,time:0,best:readBest()};
   S.hand[0]=1;
+  S.hand[1]=1;
   const d=useSave?readJSON(SAVE_KEY):null;
   if(d&&Array.isArray(d.hand)&&Array.isArray(d.tiles)){
     S.money=d.money;S.wave=d.wave;S.waveT=d.waveT;S.spawnQ=d.spawnQ;S.lives=d.lives;S.buys=d.buys||0;
@@ -101,7 +102,7 @@ function reset(useSave){
     for(let i=0;i<HAND_N;i++)S.hand[i]=d.hand[i]||0;
     S.tiles.forEach((t,i)=>{
       t.lv=d.tiles[i]||0;
-      t.open=Array.isArray(d.open)?!!d.open[i]:(t.lv>0||i===1);
+      t.open=Array.isArray(d.open)?!!d.open[i]:(t.lv>0||i<=2);
     });
   }
 }
@@ -116,10 +117,10 @@ function clearSave(){try{localStorage.removeItem(SAVE_KEY);}catch(e){}}
 setInterval(save,2000);
 window.addEventListener('pagehide',save);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
-function cost(){return Math.floor(25*Math.pow(1.10,S.wave-1)*Math.pow(1.03,S.buys));}
+function cost(){return Math.floor(22*Math.pow(1.09,S.wave-1)*Math.pow(1.03,S.buys));}
 function tileCost(){
   const u=S.tiles.filter(t=>t.open).length;
-  return Math.floor(30*Math.pow(1.7,Math.max(0,u-1)));
+  return Math.floor(28*Math.pow(1.65,Math.max(0,u-3)));
 }
 function tryUnlock(i){
   const t=S.tiles[i];
@@ -299,12 +300,13 @@ cv.addEventListener('pointerup',endDrag);
 cv.addEventListener('pointercancel',endDrag);
 function spawn(boss){
   const w=S.wave,big=w%5===0;
-  const hp0=Math.max(18*Math.pow(1.2,w-1),power()*ADAPT);
-  const rw=Math.ceil(4*Math.pow(1.13,w-1));
-  const sp=Math.min(85,40+w*0.4);
+  const baseHp=12*Math.pow(1.16,w-1);
+  const hp0=Math.max(baseHp,power()*ADAPT*(0.55+Math.min(0.45,w*0.04)));
+  const rw=Math.ceil(4*Math.pow(1.12,w-1));
+  const sp=Math.min(80,38+w*0.35);
   if(boss){
-    const hb=hp0*(8+w*0.6)*(big?3:1);
-    S.enemies.push({d:0,hp:hb,max:hb,sp:sp*0.7,r:rw*(big?45:15),boss:true,big,x:P[0][0],y:P[0][1]});
+    const hb=hp0*(6.5+w*0.45)*(big?2.6:1);
+    S.enemies.push({d:0,hp:hb,max:hb,sp:sp*0.7,r:rw*(big?40:14),boss:true,big,x:P[0][0],y:P[0][1]});
     say(big?'大ボス出現!':'ボス出現!',W/2,250,'#ff6a5a');
   }else{
     S.enemies.push({d:0,hp:hp0,max:hp0,sp,r:rw,x:P[0][0],y:P[0][1]});
@@ -320,7 +322,7 @@ function update(dt){
     const n=count(S.wave);
     S.spawnQ+=n;S.gap=14/n;
     S.bossT=6;S.bossOn=true;
-    S.money+=Math.floor(cost()*0.25);
+    S.money+=Math.floor(cost()*0.28);
     say('WAVE '+S.wave,W/2,280,'#ffd95a');
   }
   if(S.bossOn){
