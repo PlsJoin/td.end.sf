@@ -33,7 +33,7 @@ canvas{width:100%;max-width:480px;max-height:100%;aspect-ratio:480/860;touch-act
 </div>
 <script>
 const cv=document.getElementById('c'),g=cv.getContext('2d');
-const W=480,H=860,SAVE_KEY='td_save_v8',BEST_KEY='td_best_v2',GIFT_KEY='td_gift_v1',CODE_KEY='td_codes_v1';
+const W=480,H=860,SAVE_KEY='td_save_v9',BEST_KEY='td_best_v2',GIFT_KEY='td_gift_v1',CODE_KEY='td_codes_v1';
 const WAVE_SEC=20,HUD_H=206,GIFT_SEC=300,ADAPT=1.05;
 const CODES={
   'WELCOME':{money:300,towers:[1,1]},
@@ -92,7 +92,8 @@ function reset(useSave){
      enemies:[],bullets:[],texts:[],
      tiles:SPOTS.map((p,i)=>({x:p[0],y:p[1],lv:0,ang:Math.PI/2,cd:0,ultCd:0,open:i<=2})),
      hand:Array(HAND_N).fill(0),handT:Array(HAND_N).fill(0),
-     buys:0,lives:22,over:false,flash:0,hit:0,drag:null,px:0,py:0,time:0,best:readBest(),tapTile:null,tapX:0,tapY:0};
+     buys:0,lives:22,over:false,flash:0,hit:0,drag:null,px:0,py:0,time:0,best:readBest(),
+     tapTile:null,tapX:0,tapY:0,menu:null};
   S.hand[0]=1;
   S.hand[1]=1;
   const d=useSave?readJSON(SAVE_KEY):null;
@@ -124,7 +125,7 @@ function tileCost(){
   const u=S.tiles.filter(t=>t.open).length;
   return Math.floor(26*Math.pow(1.55,Math.max(0,u-3)));
 }
-function coreCost(lv){return Math.max(1,Math.ceil(lv/2));}
+function coreCost(lv){return 2+lv*2;}
 function tryUnlock(i){
   const t=S.tiles[i];
   const c=tileCost();
@@ -183,6 +184,7 @@ function giveTowers(list){
 function dropCore(e){
   let n=0;
   if(e.boss)n=e.big?4+Math.floor(S.wave/15):2+Math.floor(S.wave/20);
+  else if(e.elite)n=2+Math.floor(S.wave/12);
   else{
     const rate=0.1+Math.min(0.18,S.wave*0.004)+(e.arm?0.08:0)+(e.typ===1?0.03:0);
     if(Math.random()<rate)n=1;
@@ -259,6 +261,16 @@ function pt(e){
   const r=cv.getBoundingClientRect();
   return [(e.clientX-r.left)*W/r.width,(e.clientY-r.top)*H/r.height];
 }
+function menuRects(ti){
+  const t=S.tiles[ti];
+  const mx=Math.min(330,Math.max(20,t.x-90));
+  const my=Math.min(520,Math.max(HUD_H+10,t.y-130));
+  return {
+    box:{x:mx,y:my,w:180,h:118},
+    up:{x:mx+12,y:my+48,w:156,h:36},
+    close:{x:mx+12,y:my+88,w:156,h:24}
+  };
+}
 function buy(){
   const c=cost();
   const free=[];
@@ -280,7 +292,7 @@ function buy(){
 function fireUlt(ti){
   const t=S.tiles[ti];
   if(!t||t.lv<1||t.ultCd>0)return false;
-  t.ultCd=15+Math.max(0,5-t.lv*0.4);
+  t.ultCd=16+Math.max(0,6-t.lv*0.35);
   const dmg=5*Math.pow(2.2,t.lv-1)*5;
   let best=null,got=0,hit=0;
   for(const e of S.enemies){
@@ -311,10 +323,34 @@ function tryCoreUp(ti){
   save();
   return true;
 }
+function autoUlt(){
+  const danger=S.enemies.filter(e=>e.hp>0&&e.d>TOTAL*0.58);
+  if(danger.length===0)return;
+  const threat=danger.reduce((s,e)=>s+e.hp,0);
+  const dps=power()*0.9;
+  if(threat<dps*2.2&&danger.length<3)return;
+  let bestTi=-1,bestScore=-1;
+  for(let i=0;i<S.tiles.length;i++){
+    const t=S.tiles[i];
+    if(t.lv<1||t.ultCd>0)continue;
+    let near=0;
+    for(const e of danger){
+      if(Math.hypot(e.x-t.x,e.y-t.y)<190)near+=e.hp;
+    }
+    if(near>bestScore){bestScore=near;bestTi=i;}
+  }
+  if(bestTi>=0&&bestScore>0)fireUlt(bestTi);
+}
 cv.addEventListener('pointerdown',e=>{
   const [x,y]=pt(e);
   S.px=x;S.py=y;
   if(S.over){clearSave();reset(false);return;}
+  if(S.menu!=null){
+    const mr=menuRects(S.menu);
+    if(inRect(x,y,mr.up)){tryCoreUp(S.menu);return;}
+    if(inRect(x,y,mr.close)||!inRect(x,y,mr.box)){S.menu=null;return;}
+    return;
+  }
   if(inRect(x,y,GIFT)){claimGift();return;}
   if(inRect(x,y,CODEBTN)){openCode();return;}
   if(inRect(x,y,BUY)){buy();return;}
@@ -347,9 +383,7 @@ function endDrag(e){
     set(d.from,d.lv);
     S.drag=null;
     S.tapTile=null;
-    const t=S.tiles[d.from.i];
-    if(t.ultCd<=0)fireUlt(d.from.i);
-    else tryCoreUp(d.from.i);
+    S.menu=d.from.i;
     return;
   }
   S.drag=null;
@@ -382,21 +416,26 @@ function spawn(boss){
   let typ=0;
   if(!boss){
     const r=Math.random();
-    if(w>=4&&r<0.16)typ=1;
-    else if(w>=6&&r<0.3)typ=2;
+    if(w>=5&&r<0.06+Math.min(0.06,w*0.002))typ=3;
+    else if(w>=4&&r<0.2)typ=1;
+    else if(w>=6&&r<0.34)typ=2;
   }
   if(boss){
     const hb=hp0*(5.2+w*0.28)*(big?2.1:1);
-    S.enemies.push({d:0,hp:hb,max:hb,sp:sp*0.65,r:rw*(big?28:10),boss:true,big,typ:0,arm:false,x:P[0][0],y:P[0][1]});
+    S.enemies.push({d:0,hp:hb,max:hb,sp:sp*0.65,r:rw*(big?28:10),boss:true,big,elite:false,typ:0,arm:false,x:P[0][0],y:P[0][1]});
     say(big?'大ボス出現!':'ボス出現!',W/2,250,'#ff6a5a');
+  }else if(typ===3){
+    const hp=hp0*(3.2+Math.min(1.5,w*0.04));
+    S.enemies.push({d:0,hp,max:hp,sp:sp*0.75,r:Math.ceil(rw*3.5),boss:false,big:false,elite:true,typ:3,arm:true,x:P[0][0],y:P[0][1]});
+    say('強敵出現!',W/2,260,'#ffb347');
   }else if(typ===1){
     const hp=hp0*0.5;
-    S.enemies.push({d:0,hp,max:hp,sp:sp*1.5,r:Math.ceil(rw*0.75),boss:false,big:false,typ:1,arm:false,x:P[0][0],y:P[0][1]});
+    S.enemies.push({d:0,hp,max:hp,sp:sp*1.5,r:Math.ceil(rw*0.75),boss:false,big:false,elite:false,typ:1,arm:false,x:P[0][0],y:P[0][1]});
   }else if(typ===2){
     const hp=hp0*1.75;
-    S.enemies.push({d:0,hp,max:hp,sp:sp*0.55,r:Math.ceil(rw*1.35),boss:false,big:false,typ:2,arm:true,x:P[0][0],y:P[0][1]});
+    S.enemies.push({d:0,hp,max:hp,sp:sp*0.55,r:Math.ceil(rw*1.35),boss:false,big:false,elite:false,typ:2,arm:true,x:P[0][0],y:P[0][1]});
   }else{
-    S.enemies.push({d:0,hp:hp0,max:hp0,sp,r:rw,boss:false,big:false,typ:0,arm:false,x:P[0][0],y:P[0][1]});
+    S.enemies.push({d:0,hp:hp0,max:hp0,sp,r:rw,boss:false,big:false,elite:false,typ:0,arm:false,x:P[0][0],y:P[0][1]});
   }
 }
 function update(dt){
@@ -422,7 +461,7 @@ function update(dt){
   for(const e of S.enemies){
     e.d+=e.sp*dt;
     const p=pos(e.d);e.x=p[0];e.y=p[1];
-    if(e.d>=TOTAL){e.hp=-1;e.leak=true;S.lives-=e.boss?3:1;S.hit=0.4;}
+    if(e.d>=TOTAL){e.hp=-1;e.leak=true;S.lives-=e.boss?3:(e.elite?2:1);S.hit=0.4;}
   }
   for(const t of S.tiles){
     if(t.ultCd>0)t.ultCd-=dt;
@@ -442,6 +481,7 @@ function update(dt){
       }
     }
   }
+  if(!S.over)autoUlt();
   for(const b of S.bullets){
     if(b.ult){
       b.life-=dt;
@@ -458,7 +498,7 @@ function update(dt){
       if(e.hp<=0&&!e.leak){
         S.money+=e.r;
         dropCore(e);
-        if(e.boss||e.r>=30)say('+'+fmt(e.r),e.x,e.y-10,'#ffe14a');
+        if(e.boss||e.elite||e.r>=30)say('+'+fmt(e.r),e.x,e.y-10,'#ffe14a');
       }
     }else{b.x+=dx/dist*step;b.y+=dy/dist*step;}
   }
@@ -469,6 +509,7 @@ function update(dt){
   if(S.lives<=0){
     S.lives=0;
     S.over=true;
+    S.menu=null;
     if(S.wave>S.best){
       S.best=S.wave;
       try{localStorage.setItem(BEST_KEY,String(S.best));}catch(e){}
@@ -544,31 +585,52 @@ function drawBg(){
   }
 }
 function drawEnemy(e){
-  const s=e.boss?1.9:(e.typ===2?1.25:e.typ===1?0.85:1);
+  const s=e.boss?1.9:(e.elite?1.45:e.typ===2?1.25:e.typ===1?0.85:1);
   g.save();
   g.translate(e.x,e.y);
   g.scale(s,s);
   g.fillStyle='rgba(0,0,0,0.25)';
   g.beginPath();g.ellipse(0,14,12,5,0,0,7);g.fill();
-  g.fillStyle=e.boss?(e.big?'#7a1fa8':'#c0392b'):(e.typ===1?'#e67e22':e.typ===2?'#7f8c8d':'#7d8fd6');
+  g.fillStyle=e.boss?(e.big?'#7a1fa8':'#c0392b'):(e.elite?'#d4a017':e.typ===1?'#e67e22':e.typ===2?'#7f8c8d':'#7d8fd6');
   g.beginPath();g.arc(0,0,13,0,7);g.fill();
-  g.fillStyle=e.boss?'#d6e08a':(e.typ===2?'#bdc3c7':'#9fd18a');
+  g.fillStyle=e.boss?'#d6e08a':(e.elite?'#ffe08a':e.typ===2?'#bdc3c7':'#9fd18a');
   g.beginPath();g.arc(0,-6,8,0,7);g.fill();
   g.fillStyle='#222';
   g.fillRect(-5,-8,3,3);g.fillRect(2,-8,3,3);
-  if(e.boss){
-    g.fillStyle='#ffd23a';
+  if(e.boss||e.elite){
+    g.fillStyle=e.elite?'#ffd700':'#ffd23a';
     g.beginPath();g.moveTo(-8,-13);g.lineTo(-8,-20);g.lineTo(-4,-16);g.lineTo(0,-22);g.lineTo(4,-16);g.lineTo(8,-20);g.lineTo(8,-13);g.fill();
   }
-  if(e.typ===2){
-    g.strokeStyle='#555';g.lineWidth=2;
+  if(e.typ===2||e.elite){
+    g.strokeStyle=e.elite?'#c9a227':'#555';g.lineWidth=2;
     g.beginPath();g.arc(0,0,14,0,7);g.stroke();
   }
   g.restore();
-  const bw=e.boss?60:28,by=e.y-26*s;
-  g.fillStyle='#333';g.fillRect(e.x-bw/2,by,bw,e.boss?7:5);
-  g.fillStyle=e.boss?'#ff5a4a':(e.typ===2?'#95a5a6':'#5ee05e');
-  g.fillRect(e.x-bw/2,by,bw*Math.max(0,e.hp/e.max),e.boss?7:5);
+  const bw=e.boss?60:e.elite?40:28,by=e.y-26*s;
+  g.fillStyle='#333';g.fillRect(e.x-bw/2,by,bw,e.boss||e.elite?7:5);
+  g.fillStyle=e.boss?'#ff5a4a':e.elite?'#f0c040':(e.typ===2?'#95a5a6':'#5ee05e');
+  g.fillRect(e.x-bw/2,by,bw*Math.max(0,e.hp/e.max),e.boss||e.elite?7:5);
+}
+function drawMenu(){
+  if(S.menu==null)return;
+  const t=S.tiles[S.menu];
+  if(!t||t.lv<1){S.menu=null;return;}
+  const mr=menuRects(S.menu);
+  g.fillStyle='rgba(0,0,0,0.35)';
+  g.fillRect(0,0,W,H);
+  g.fillStyle='#1e3214';
+  rr(mr.box.x,mr.box.y,mr.box.w,mr.box.h,12);g.fill();
+  g.strokeStyle='#4a7a2a';g.lineWidth=2;
+  rr(mr.box.x,mr.box.y,mr.box.w,mr.box.h,12);g.stroke();
+  txt('Lv '+t.lv+' 戦車',mr.box.x+mr.box.w/2,mr.box.y+22,18,'#fff');
+  const need=coreCost(t.lv);
+  const can=S.cores>=need;
+  g.fillStyle=can?'#2a6a9a':'#444';
+  rr(mr.up.x,mr.up.y,mr.up.w,mr.up.h,8);g.fill();
+  txt('コア強化  '+need,mr.up.x+mr.up.w/2,mr.up.y+mr.up.h/2,16,can?'#b8ecff':'#999');
+  g.fillStyle='rgba(255,255,255,0.12)';
+  rr(mr.close.x,mr.close.y,mr.close.w,mr.close.h,6);g.fill();
+  txt('閉じる',mr.close.x+mr.close.w/2,mr.close.y+mr.close.h/2,14,'#ccc');
 }
 function hud(){
   g.fillStyle='#16240e';g.fillRect(0,0,W,HUD_H);
@@ -612,7 +674,7 @@ function hud(){
   txt('ベスト '+S.best,12,90,14,'#ffe9a0','left');
   txt('♥ '+S.lives,12,116,22,'#ff8a8a','left');
   txt(S.bossOn?'ボスまで '+Math.ceil(S.bossT)+'秒':'ボス出現済み',468,106,14,'#ff9a8a','right');
-  txt('タップ:必殺/コア強化',468,128,12,'#a0d0ff','right');
+  txt('必殺は自動 / タップで強化',468,128,12,'#a0d0ff','right');
   g.restore();
 }
 function draw(){
@@ -632,17 +694,6 @@ function draw(){
   }
   for(const t of S.tiles){
     if(t.lv>0){
-      if(t.ultCd<=0){
-        const pulse=0.35+0.25*Math.sin(S.time*5);
-        g.strokeStyle='rgba(255,100,255,'+pulse+')';
-        g.lineWidth=3;
-        g.beginPath();g.arc(t.x,t.y,34,0,7);g.stroke();
-      }else if(S.cores>=coreCost(t.lv)){
-        const pulse=0.3+0.2*Math.sin(S.time*4);
-        g.strokeStyle='rgba(100,200,255,'+pulse+')';
-        g.lineWidth=2.5;
-        g.beginPath();g.arc(t.x,t.y,34,0,7);g.stroke();
-      }
       tower(t.x,t.y,56,t.lv,t.ang);
       if(t.ultCd>0){
         g.fillStyle='rgba(0,0,0,0.55)';
@@ -707,6 +758,7 @@ function draw(){
     txt(t.s,t.x,t.y-t.t*40,26,t.c);
     g.globalAlpha=1;
   }
+  drawMenu();
   if(S.over){
     g.fillStyle='rgba(0,0,0,0.65)';g.fillRect(0,0,W,H);
     txt('ゲームオーバー',W/2,360,40,'#fff');
