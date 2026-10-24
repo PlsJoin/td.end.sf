@@ -11,13 +11,35 @@
 html,body{margin:0;height:100%;background:var(--bg)}
 body{display:flex;justify-content:center;align-items:center}
 canvas{width:100%;max-width:480px;max-height:100%;aspect-ratio:480/860;touch-action:none;display:block;user-select:none;-webkit-user-select:none}
+#cb{position:fixed;inset:0;background:rgba(0,0,0,0.6);display:flex;align-items:center;justify-content:center;z-index:10}
+#cb[hidden]{display:none}
+.bx{background:#2c4a1a;color:#fff;padding:18px;border-radius:14px;width:min(320px,82vw);font-family:sans-serif;font-weight:bold}
+.bx input{width:100%;box-sizing:border-box;font-size:20px;padding:10px;margin:12px 0 6px;border-radius:8px;border:0;text-transform:uppercase}
+.bx .row{display:flex;gap:10px;margin-top:10px}
+.bx button{flex:1;font-size:17px;padding:10px;border:0;border-radius:8px;font-weight:bold}
+#cok{background:#f6c026}
+#cm{min-height:20px;color:#ffd95a;font-size:14px}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="cb" hidden>
+<div class="bx">
+<div>コードを入力</div>
+<input id="ci" autocomplete="off" autocapitalize="characters" spellcheck="false">
+<div id="cm"></div>
+<div class="row"><button id="cok">OK</button><button id="cx">閉じる</button></div>
+</div>
+</div>
 <script>
 const cv=document.getElementById('c'),g=cv.getContext('2d');
-const W=480,H=860,SAVE_KEY='td_save_v3',BEST_KEY='td_best_v2',WAVE_SEC=20,HUD_H=172;
+const W=480,H=860,SAVE_KEY='td_save_v3',BEST_KEY='td_best_v2',GIFT_KEY='td_gift_v1',CODE_KEY='td_codes_v1';
+const WAVE_SEC=20,HUD_H=206,GIFT_SEC=300;
+const CODES={
+  'WELCOME':{money:300,towers:[1,1]},
+  'BIGGIFT':{money:3000,towers:[3,3]},
+  'LUCKY7':{towers:[7]}
+};
 cv.width=W;cv.height=H;
 const P=[[110,150],[110,230],[340,230],[340,340],[110,340],[110,450],[340,450],[340,565],[375,590]];
 const L=[0];
@@ -36,6 +58,8 @@ const SPOTS=[[40,285],[225,285],[430,285],[40,395],[225,395],[430,395],[40,505],
 const HAND_N=8;
 const TRASH={x:14,y:566,w:52,h:60};
 const BUY={x:10,y:650,w:130,h:200};
+const GIFT={x:8,y:6,w:228,h:38};
+const CODEBTN={x:244,y:6,w:228,h:38};
 function slotRect(i){return {x:162+(i%4)*76,y:662+((i/4)|0)*86,w:68,h:68};}
 function readJSON(k){
   try{return JSON.parse(localStorage.getItem(k)||'null');}catch(e){return null;}
@@ -43,8 +67,26 @@ function readJSON(k){
 function readBest(){
   try{return parseInt(localStorage.getItem(BEST_KEY)||'0',10)||0;}catch(e){return 0;}
 }
+function readGift(){
+  try{return parseInt(localStorage.getItem(GIFT_KEY)||'0',10)||0;}catch(e){return 0;}
+}
+let giftAt=readGift();
+function setGift(t){
+  giftAt=t;
+  try{localStorage.setItem(GIFT_KEY,String(t));}catch(e){}
+}
+function usedCodes(){
+  const a=readJSON(CODE_KEY);
+  return Array.isArray(a)?a:[];
+}
+function markUsed(c){
+  const a=usedCodes();
+  a.push(c);
+  try{localStorage.setItem(CODE_KEY,JSON.stringify(a));}catch(e){}
+}
 function count(w){return 4+Math.floor(w*1.5);}
 let S;
+let paused=false;
 function reset(useSave){
   S={money:20,wave:1,waveT:WAVE_SEC,spawnQ:count(1),gap:14/count(1),spawnT:0,bossT:6,bossOn:true,
      enemies:[],bullets:[],texts:[],
@@ -71,7 +113,7 @@ function clearSave(){try{localStorage.removeItem(SAVE_KEY);}catch(e){}}
 setInterval(save,2000);
 window.addEventListener('pagehide',save);
 document.addEventListener('visibilitychange',()=>{if(document.hidden)save();});
-function cost(){return Math.floor(60*Math.pow(1.15,S.wave-1)*Math.pow(1.04,S.buys));}
+function cost(){return Math.floor(25*Math.pow(1.10,S.wave-1)*Math.pow(1.03,S.buys));}
 function baseLv(){return 1+Math.floor((S.wave-1)/8);}
 function tier(){return Math.min(3,Math.floor((S.wave-1)/10));}
 function maxLv(){
@@ -93,12 +135,74 @@ function fmt(n){
   if(n>=1e3)return (n/1e3).toFixed(n>=1e5?0:1)+'K';
   return String(Math.floor(n));
 }
+function mmss(s){
+  const m=Math.floor(s/60),r=s%60;
+  return m+':'+(r<10?'0':'')+r;
+}
 function say(s,x,y,c){S.texts.push({s,x,y,c:c||'#fff',t:0});}
 function get(l){return l.t==='h'?S.hand[l.i]:S.tiles[l.i].lv;}
 function set(l,v){
   if(l.t==='h'){S.hand[l.i]=v;S.handT[l.i]=performance.now();}
   else S.tiles[l.i].lv=v;
 }
+function giveTowers(list){
+  let extra=0;
+  for(const lv of list){
+    const k=S.hand.indexOf(0);
+    if(k<0)extra+=Math.floor(10*Math.pow(2,lv-1));
+    else{S.hand[k]=lv;S.handT[k]=performance.now();}
+  }
+  return extra;
+}
+function claimGift(){
+  const now=Date.now();
+  if(now<giftAt){
+    say('あと '+mmss(Math.ceil((giftAt-now)/1000)),240,290,'#fff');
+    return;
+  }
+  const m=cost()*12;
+  S.money+=m+giveTowers([roll(),roll()]);
+  setGift(now+GIFT_SEC*1000);
+  say('時間報酬! +'+fmt(m),240,290,'#ffe14a');
+  say('戦車 x2',240,330,'#9dff9d');
+  save();
+}
+function redeem(raw){
+  const code=String(raw||'').trim().toUpperCase();
+  if(!code)return {ok:false,msg:'コードを入力してください'};
+  const def=CODES[code];
+  if(!def)return {ok:false,msg:'コードが違います'};
+  if(usedCodes().indexOf(code)>=0)return {ok:false,msg:'使用済みのコードです'};
+  const towers=def.towers||[];
+  const free=S.hand.filter(v=>v===0).length;
+  if(free<towers.length)return {ok:false,msg:'手持ちに空きが必要です'};
+  S.money+=def.money||0;
+  giveTowers(towers);
+  markUsed(code);
+  save();
+  return {ok:true,msg:'コード報酬を受け取った!'};
+}
+const cb=document.getElementById('cb'),ci=document.getElementById('ci'),cm=document.getElementById('cm');
+function openCode(){
+  paused=true;
+  cm.textContent='';
+  ci.value='';
+  cb.hidden=false;
+  setTimeout(()=>ci.focus(),50);
+}
+function closeCode(){
+  cb.hidden=true;
+  paused=false;
+  last=performance.now();
+}
+function submitCode(){
+  const r=redeem(ci.value);
+  if(r.ok){closeCode();say(r.msg,240,290,'#ffe14a');}
+  else cm.textContent=r.msg;
+}
+document.getElementById('cok').addEventListener('click',submitCode);
+document.getElementById('cx').addEventListener('click',closeCode);
+ci.addEventListener('keydown',e=>{if(e.key==='Enter')submitCode();});
 function hitLoc(x,y){
   for(let i=0;i<HAND_N;i++){
     const r=slotRect(i);
@@ -137,6 +241,8 @@ cv.addEventListener('pointerdown',e=>{
   const [x,y]=pt(e);
   S.px=x;S.py=y;
   if(S.over){clearSave();reset(false);return;}
+  if(inRect(x,y,GIFT)){claimGift();return;}
+  if(inRect(x,y,CODEBTN)){openCode();return;}
   if(inRect(x,y,BUY)){buy();return;}
   const l=hitLoc(x,y);
   if(l&&get(l)>0){
@@ -174,7 +280,7 @@ function spawn(boss){
   const sp=Math.min(85,40+w*0.4);
   if(boss){
     S.enemies.push({d:0,hp:hp0*(8+w*0.6)*(big?3:1),max:hp0*(8+w*0.6)*(big?3:1),sp:sp*0.7,r:rw*(big?45:15),boss:true,big,x:P[0][0],y:P[0][1]});
-    say(big?'大ボス出現!':'ボス出現!',W/2,230,'#ff6a5a');
+    say(big?'大ボス出現!':'ボス出現!',W/2,250,'#ff6a5a');
   }else{
     S.enemies.push({d:0,hp:hp0,max:hp0,sp,r:rw,x:P[0][0],y:P[0][1]});
   }
@@ -190,7 +296,7 @@ function update(dt){
     S.spawnQ+=n;S.gap=14/n;
     S.bossT=6;S.bossOn=true;
     S.money+=Math.floor(cost()*0.25);
-    say('WAVE '+S.wave,W/2,260,'#ffd95a');
+    say('WAVE '+S.wave,W/2,280,'#ffd95a');
   }
   if(S.bossOn){
     S.bossT-=dt;
@@ -307,7 +413,7 @@ function drawBg(){
   g.beginPath();P.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));g.stroke();
   g.strokeStyle='#c8914a';g.lineWidth=44;
   g.beginPath();P.forEach((p,i)=>i?g.lineTo(p[0],p[1]):g.moveTo(p[0],p[1]));g.stroke();
-  const trees=[[28,215],[165,190],[300,190],[455,215],[460,450],[455,530],[30,595],[190,600],[275,545],[100,610]];
+  const trees=[[28,235],[165,205],[300,205],[455,235],[460,450],[455,530],[30,595],[190,600],[275,545],[100,610]];
   for(const t of trees){
     g.fillStyle='#2f7a2c';
     g.beginPath();g.moveTo(t[0],t[1]-26);g.lineTo(t[0]+15,t[1]+12);g.lineTo(t[0]-15,t[1]+12);g.fill();
@@ -340,6 +446,16 @@ function drawEnemy(e){
 function hud(){
   g.fillStyle='#16240e';g.fillRect(0,0,W,HUD_H);
   g.fillStyle='#2c4a1a';g.fillRect(0,HUD_H-4,W,4);
+  const ready=Date.now()>=giftAt;
+  const pulse=0.7+0.3*Math.sin(S.time*6);
+  g.fillStyle=ready?'rgba(255,190,40,'+pulse+')':'rgba(255,255,255,0.14)';
+  rr(GIFT.x,GIFT.y,GIFT.w,GIFT.h,10);g.fill();
+  txt(ready?'🎁 時間報酬 受け取る!':'🎁 次の報酬まで '+mmss(Math.ceil((giftAt-Date.now())/1000)),GIFT.x+GIFT.w/2,GIFT.y+GIFT.h/2,16,ready?'#fff':'#ddd');
+  g.fillStyle='rgba(120,170,255,0.35)';
+  rr(CODEBTN.x,CODEBTN.y,CODEBTN.w,CODEBTN.h,10);g.fill();
+  txt('🔑 コード入力',CODEBTN.x+CODEBTN.w/2,CODEBTN.y+CODEBTN.h/2,16,'#fff');
+  g.save();
+  g.translate(0,36);
   g.fillStyle='rgba(30,30,30,0.85)';
   rr(60,14,330,44,8);g.fill();
   g.fillStyle='#f5b81c';g.beginPath();g.arc(60,36,26,0,7);g.fill();
@@ -364,6 +480,7 @@ function hud(){
   txt('ベスト '+S.best,12,90,14,'#ffe9a0','left');
   txt('♥ '+S.lives,12,116,22,'#ff8a8a','left');
   txt(S.bossOn?'ボスまで '+Math.ceil(S.bossT)+'秒':'ボス出現済み',468,106,14,'#ff9a8a','right');
+  g.restore();
 }
 function draw(){
   drawBg();
@@ -386,8 +503,8 @@ function draw(){
   g.fillRect(TRASH.x+8,TRASH.y+11,36,4);
   g.fillStyle='#999';
   for(let i=0;i<3;i++)g.fillRect(TRASH.x+17+i*9,TRASH.y+21,3,24);
-  const ready=S.money>=cost()&&S.hand.indexOf(0)>=0;
-  g.fillStyle=S.flash>0?'#e24a3a':(ready?'#f6c026':'#b9a04a');
+  const ok=S.money>=cost()&&S.hand.indexOf(0)>=0;
+  g.fillStyle=S.flash>0?'#e24a3a':(ok?'#f6c026':'#b9a04a');
   rr(BUY.x,BUY.y,BUY.w,BUY.h,14);g.fill();
   g.lineWidth=4;g.strokeStyle='#8a6410';g.stroke();
   const cc=['#b98a4a','#b8c2cc','#f3c93a','#b06be0'][tier()];
@@ -435,7 +552,7 @@ let last=performance.now();
 function loop(n){
   const dt=Math.min(0.05,(n-last)/1000);
   last=n;
-  if(!S.over)update(dt);
+  if(!S.over&&!paused)update(dt);
   draw();
   requestAnimationFrame(loop);
 }
